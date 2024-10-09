@@ -8,50 +8,47 @@ import speedtest
 # Initialize colorama for colored terminal output
 init(autoreset=True)
 
+def log_message(message, log_type="info"):
+    """Log message with different colors based on log type."""
+    colors = {
+        "info": Fore.CYAN,
+        "success": Fore.GREEN,
+        "warning": Fore.YELLOW,
+        "error": Fore.RED
+    }
+    color = colors.get(log_type, Fore.CYAN)
+    print(f"{color}{message}{Style.RESET_ALL}")
+
 def get_system_info():
-    """
-    Gathers general system information including OS, CPU, RAM, motherboard, and GPU.
-    Returns:
-        tuple: Contains OS info, CPU info, RAM size in GB, motherboard info, and GPU info.
-    """
-    os_info = platform.system() + " " + platform.release()
+    """Retrieve system specifications."""
+    os_info = f"{platform.system()} {platform.release()}"
     cpu_info = get_cpu_info()
-    ram_info = psutil.virtual_memory().total / (1024 ** 3)  # Convert to GB
+    ram_info = psutil.virtual_memory().total / (1024 ** 3)  # Convert bytes to GB
     motherboard_info = get_motherboard_info()
     gpu_info = get_gpu_info()
     return os_info, cpu_info, ram_info, motherboard_info, gpu_info
 
 def get_motherboard_info():
-    """
-    Retrieves the motherboard information for Windows and Linux systems.
-    Uses command line tools and file reading to get the details.
-    
-    Returns:
-        str: Motherboard manufacturer and model, or 'Unknown' if not found.
-    """
-    if platform.system() == "Windows":
-        try:
+    """Attempt to get motherboard information (works on Windows and Linux)."""
+    try:
+        if platform.system() == "Windows":
             output = subprocess.check_output("wmic baseboard get product,Manufacturer", shell=True).decode()
             return output.split("\n")[1].strip()
-        except Exception:
-            return "Unknown"
-    elif platform.system() == "Linux":
-        try:
-            # Reading motherboard details from the Linux file system
-            with open('/sys/devices/virtual/dmi/id/board_vendor') as f:
-                vendor = f.read().strip()
-            with open('/sys/devices/virtual/dmi/id/board_name') as f:
-                name = f.read().strip()
+        elif platform.system() == "Linux":
+            with open('/sys/devices/virtual/dmi/id/board_vendor') as vendor_file:
+                vendor = vendor_file.read().strip()
+            with open('/sys/devices/virtual/dmi/id/board_name') as name_file:
+                name = name_file.read().strip()
             return f"{vendor} {name}"
-        except Exception:
-            return "Unknown"
-    return "Unknown"
+    except Exception as e:
+        log_message(f"[ERROR] Failed to get motherboard info: {str(e)}", log_type="error")
+        return "Unknown"
 
 def get_cpu_info():
     """Get detailed CPU information."""
     try:
-        # Use lscpu command on Linux
         if platform.system() == "Linux":
+            # Use lscpu for detailed info on Linux
             command = "lscpu | grep 'Model name'"
             result = subprocess.check_output(command, shell=True).decode()
             cpu_name = result.split(":")[1].strip() if ':' in result else "Unknown CPU"
@@ -62,67 +59,64 @@ def get_cpu_info():
             cpu_name = "Unknown CPU"
         
         cpu_cores = psutil.cpu_count(logical=True)
-        cpu_physical_cores = psutil.cpu_count(logical=False)
-        return f"{cpu_name} ({cpu_physical_cores} physical cores, {cpu_cores} logical cores)"
+        physical_cores = psutil.cpu_count(logical=False)
+        cpu_freq = psutil.cpu_freq().current
+        return f"{cpu_name} ({physical_cores} physical cores, {cpu_cores} logical cores) at {cpu_freq:.2f} MHz"
     except Exception as e:
-        print(f"Could not retrieve CPU information: {e}")
+        log_message(f"[ERROR] Could not retrieve CPU information: {e}", log_type="error")
         return "Unknown CPU"
 
-
 def get_gpu_info():
-    """Get GPU information with debugging."""
+    """Get GPU information using both GPUtil and lshw (for Linux)."""
     try:
+        # Attempt to use GPUtil first
         gpus = GPUtil.getGPUs()
         if gpus:
             gpu = gpus[0]
-            print(f"{Fore.GREEN}Detected GPU: {gpu.name} (Driver Version: {gpu.driver})")
+            log_message(f"Detected GPU: {gpu.name} (Driver Version: {gpu.driver})", log_type="info")
             return f"{gpu.name} (Driver Version: {gpu.driver})"
-        else:
-            print(f"{Fore.RED}No GPU found with GPUtil.")
-            return "No GPU found"
-    except Exception as e:
-        print(f"{Fore.RED}Error detecting GPU: {e}")
+
+        # Fallback to lshw if GPUtil fails
+        if platform.system() == "Linux":
+            output = subprocess.check_output("lshw -C display", shell=True).decode('utf-8')
+            for line in output.splitlines():
+                if 'product:' in line:
+                    gpu_name = line.strip().split(": ")[1]
+                    log_message(f"Detected GPU using lshw: {gpu_name}", log_type="info")
+                    return gpu_name
+            log_message("[ERROR] GPU information not found using lshw.", log_type="error")
         return "No GPU found"
+    except ValueError as ve:
+        if "NVIDIA-SMI" in str(ve):
+            log_message("[ERROR] NVIDIA driver communication error. Please install or update the NVIDIA driver.", log_type="error")
+        else:
+            log_message(f"[ERROR] Failed to detect GPU: {ve}", log_type="error")
+        return "Unknown GPU"
+    except Exception as e:
+        log_message(f"[ERROR] Failed to detect GPU: {e}", log_type="error")
+        return "Unknown GPU"
 
 
-def get_internet_speed():
-    """
-    Measures the internet speed using the Speedtest library.
-    
-    Returns:
-        str: Download, upload speeds and ping information, or an error message.
-    """
+def test_internet_speed():
+    """Check internet speed using Speedtest."""
     try:
-        # Initializing the Speedtest and finding the best server
         st = speedtest.Speedtest()
         st.get_best_server()
-        download_speed = st.download() / 1_000_000  # Convert to Mbps
-        upload_speed = st.upload() / 1_000_000  # Convert to Mbps
+        download_speed = st.download() / 10**6  # Convert to Mbps
+        upload_speed = st.upload() / 10**6  # Convert to Mbps
         ping = st.results.ping
-        return f"Ping: {ping:.2f} ms, Download: {download_speed:.2f} Mbps, Upload: {upload_speed:.2f} Mbps"
+        log_message(f"[INFO] Internet speed - Download: {download_speed:.2f} Mbps, Upload: {upload_speed:.2f} Mbps, Ping: {ping:.2f} ms")
+        return download_speed, upload_speed, ping
     except Exception as e:
-        return f"Could not retrieve internet speed information: {e}"
+        log_message(f"[ERROR] Failed to test internet speed: {str(e)}", log_type="error")
+        return None, None, None
 
 def compare_specs_with_game(cpu, ram, gpu, game_name, game_specs):
-    """
-    Compares system specifications against a game's requirements.
-    
-    Args:
-        cpu (str): The system's CPU information.
-        ram (float): Total RAM in GB.
-        gpu (str): The system's GPU information.
-        game_name (str): The name of the game.
-        game_specs (dict): The minimum, recommended, or high settings specs for the game.
-    
-    Returns:
-        str: Status indicating if system exceeds, meets, or fails to meet requirements.
-    """
-    # Lowercase checks for case-insensitive matching of CPU and GPU models
-    cpu_met = any(req_cpu.lower() in cpu.lower() for req_cpu in game_specs['cpu'])
+    """Compare the system specs with game requirements."""
+    cpu_met = any(spec.lower() in cpu.lower() for spec in game_specs['cpu'])
     ram_met = ram >= game_specs['ram']
-    gpu_met = any(req_gpu.lower() in gpu.lower() for req_gpu in game_specs['gpu'])
+    gpu_met = any(spec.lower() in gpu.lower() for spec in game_specs['gpu'])
     
-    # Determine the overall compatibility status based on individual checks
     if cpu_met and ram_met and gpu_met:
         status = f"{Fore.GREEN}Exceeds Optimized Requirements"
     elif cpu_met and ram_met:
@@ -134,53 +128,53 @@ def compare_specs_with_game(cpu, ram, gpu, game_name, game_specs):
     return status
 
 def print_specs():
-    """
-    Prints out system specs and evaluates game compatibility.
-    Compares against specific game requirements for accurate output.
-    """
+    """Print system specs and compare them with popular game requirements."""
     os_info, cpu_info, ram_info, motherboard_info, gpu_info = get_system_info()
-    print(f"{Fore.BLUE}System Intel Pro")
-    print(f"{Fore.BLUE}Developed by: Dr. Aubrey W. Love II (AKA Rogue Payload)")
-    print(f"{Fore.BLUE}A product of Global Bug Hunters\n")
-    print(f"{Fore.CYAN}Hardware Specs:")
-    print(f"{Fore.CYAN}CPU: {cpu_info}")
-    print(f"{Fore.CYAN}RAM: {ram_info:.2f} GB")
-    print(f"{Fore.CYAN}GPU: {gpu_info}")
-    print(f"{Fore.CYAN}Motherboard: {motherboard_info}\n")
+    log_message(f"System Intel Pro", log_type="info")
+    log_message(f"Developed by: Dr. Aubrey W. Love II (AKA Rogue Payload)", log_type="info")
+    log_message(f"A product of Global Bug Hunters\n", log_type="info")
 
-    print(f"{Fore.CYAN}Internet Specs:")
-    internet_speed_info = get_internet_speed()
-    print(f"{Fore.CYAN}{internet_speed_info}\n")
+    log_message(f"Hardware Specs:", log_type="info")
+    log_message(f"CPU: {cpu_info}")
+    log_message(f"RAM: {ram_info:.2f} GB")
+    log_message(f"GPU: {gpu_info}")
+    log_message(f"Motherboard: {motherboard_info}\n")
 
-    # Game specs for comparison
+    download_speed, upload_speed, ping = test_internet_speed()
+    log_message(f"Internet Specs:", log_type="info")
+    if download_speed:
+        log_message(f"Ping: {ping:.2f} ms, Download: {download_speed:.2f} Mbps, Upload: {upload_speed:.2f} Mbps")
+    else:
+        log_message("Could not retrieve internet speed information.", log_type="error")
+
+    # Define game specs for comparison
     game_requirements = {
         "Call of Duty": {
-            "cpu": ["i3-4340", "i5-2500K", "i7-8700K", "i7-9700K"],
-            "ram": 16,  # Highest requirement among different versions
-            "gpu": ["GTX 670", "GTX 970", "GTX 1080", "RTX 2070", "RTX 2080 SUPER"]
+            "cpu": ["i3-4340", "FX-6300"],
+            "ram": 8,
+            "gpu": ["GTX 670", "GTX 1650"]
         },
         "Fortnite": {
-            "cpu": ["i3-3225", "i5-7300U", "i7-8700"],
-            "ram": 16,  # Highest requirement
-            "gpu": ["HD 4000", "GTX 960", "RTX 3070"]
+            "cpu": ["i5-7300U", "R3 3300U"],
+            "ram": 16,
+            "gpu": ["GTX 960", "R9 280"]
         },
         "Roblox": {
             "cpu": ["1.6 GHz", "Dual-core"],
-            "ram": 4,  # Recommended requirement
-            "gpu": ["DX10-compatible", "Dedicated GPU"]
+            "ram": 4,
+            "gpu": ["DX10", "Dedicated GPU"]
         },
         "Minecraft": {
-            "cpu": ["i3-4150", "i7-6500U", "FX-4100"],
-            "ram": 8,  # Recommended requirement
-            "gpu": ["HD 4400", "GeForce 940M", "HD 7750"]
+            "cpu": ["i3-4150", "N4100"],
+            "ram": 8,
+            "gpu": ["HD 4400", "R5 series"]
         }
     }
 
-    print(f"{Fore.BLUE}\nGame Compatibility Check:")
+    log_message("\nGame Compatibility Check:", log_type="info")
     for game_name, specs in game_requirements.items():
         status = compare_specs_with_game(cpu_info, ram_info, gpu_info, game_name, specs)
-        print(f"{Fore.MAGENTA}{game_name}: {status}")
+        log_message(f"{game_name}: {status}")
 
 if __name__ == "__main__":
-    # Main execution
     print_specs()
