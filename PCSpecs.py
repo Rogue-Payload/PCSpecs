@@ -29,7 +29,7 @@ def get_system_info():
     return os_info, cpu_info, ram_info, motherboard_info, gpu_info
 
 def get_motherboard_info():
-    """Attempt to get motherboard information (works on Windows and Linux)."""
+    """Get motherboard information based on the operating system."""
     try:
         if platform.system() == "Windows":
             output = subprocess.check_output("wmic baseboard get product,Manufacturer", shell=True).decode()
@@ -40,24 +40,28 @@ def get_motherboard_info():
             with open('/sys/devices/virtual/dmi/id/board_name') as name_file:
                 name = name_file.read().strip()
             return f"{vendor} {name}"
+        elif platform.system() == "Darwin":  # macOS
+            output = subprocess.check_output("system_profiler SPHardwareDataType", shell=True).decode()
+            for line in output.splitlines():
+                if "Model Name" in line:
+                    return line.split(": ")[1]
     except Exception as e:
         log_message(f"[ERROR] Failed to get motherboard info: {str(e)}", log_type="error")
         return "Unknown"
+
 
 def get_cpu_info():
     """Get detailed CPU information."""
     try:
         if platform.system() == "Linux":
-            # Use lscpu for detailed info on Linux
             command = "lscpu | grep 'Model name'"
             result = subprocess.check_output(command, shell=True).decode()
             cpu_name = result.split(":")[1].strip() if ':' in result else "Unknown CPU"
+        elif platform.system() == "Darwin":  # macOS
+            cpu_name = subprocess.check_output("sysctl -n machdep.cpu.brand_string", shell=True).decode().strip()
         else:
             cpu_name = platform.processor()
 
-        if not cpu_name:
-            cpu_name = "Unknown CPU"
-        
         cpu_cores = psutil.cpu_count(logical=True)
         physical_cores = psutil.cpu_count(logical=False)
         cpu_freq = psutil.cpu_freq().current
@@ -66,35 +70,37 @@ def get_cpu_info():
         log_message(f"[ERROR] Could not retrieve CPU information: {e}", log_type="error")
         return "Unknown CPU"
 
-def get_gpu_info():
-    """Get GPU information using both GPUtil and lshw (for Linux)."""
-    try:
-        # Attempt to use GPUtil first
-        gpus = GPUtil.getGPUs()
-        if gpus:
-            gpu = gpus[0]
-            log_message(f"Detected GPU: {gpu.name} (Driver Version: {gpu.driver})", log_type="info")
-            return f"{gpu.name} (Driver Version: {gpu.driver})"
 
-        # Fallback to lshw if GPUtil fails
-        if platform.system() == "Linux":
-            output = subprocess.check_output("lshw -C display", shell=True).decode('utf-8')
+def get_gpu_info():
+    """Get GPU information using platform-specific methods."""
+    try:
+        if platform.system() == "Windows" or platform.system() == "Linux":
+            # Use GPUtil for Windows/Linux
+            gpus = GPUtil.getGPUs()
+            if gpus:
+                gpu = gpus[0]
+                log_message(f"Detected GPU: {gpu.name} (Driver Version: {gpu.driver})", log_type="info")
+                return f"{gpu.name} (Driver Version: {gpu.driver})"
+            # Fallback to lshw if GPUtil fails (Linux only)
+            if platform.system() == "Linux":
+                output = subprocess.check_output("lshw -C display", shell=True).decode('utf-8')
+                for line in output.splitlines():
+                    if 'product:' in line:
+                        gpu_name = line.strip().split(": ")[1]
+                        log_message(f"Detected GPU using lshw: {gpu_name}", log_type="info")
+                        return gpu_name
+        elif platform.system() == "Darwin":  # macOS
+            output = subprocess.check_output("system_profiler SPDisplaysDataType", shell=True).decode()
             for line in output.splitlines():
-                if 'product:' in line:
-                    gpu_name = line.strip().split(": ")[1]
-                    log_message(f"Detected GPU using lshw: {gpu_name}", log_type="info")
+                if "Chipset Model" in line:
+                    gpu_name = line.split(": ")[1].strip()
+                    log_message(f"Detected GPU using system_profiler: {gpu_name}", log_type="info")
                     return gpu_name
-            log_message("[ERROR] GPU information not found using lshw.", log_type="error")
         return "No GPU found"
-    except ValueError as ve:
-        if "NVIDIA-SMI" in str(ve):
-            log_message("[ERROR] NVIDIA driver communication error. Please install or update the NVIDIA driver.", log_type="error")
-        else:
-            log_message(f"[ERROR] Failed to detect GPU: {ve}", log_type="error")
-        return "Unknown GPU"
     except Exception as e:
         log_message(f"[ERROR] Failed to detect GPU: {e}", log_type="error")
         return "Unknown GPU"
+
 
 
 def test_internet_speed():
