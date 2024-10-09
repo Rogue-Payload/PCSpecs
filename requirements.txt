@@ -1,0 +1,39 @@
+# requirements.txt
+
+# psutil is a cross-platform library for accessing system details and hardware information. 
+# It allows us to gather information about CPU, memory, disks, network, and sensors.
+# We use it to get RAM information and system usage stats.
+psutil==5.9.5
+
+# GPUtil is a Python library for getting the GPU status on NVIDIA GPUs using the NVIDIA Management Library (NVML).
+# It helps us to detect GPU information such as GPU name, memory usage, and driver version.
+# We use it to fetch the details of the installed GPU.
+GPUtil==1.4.0
+
+# colorama is used for colored terminal text in a cross-platform way.
+# It allows us to output colored text on Windows, macOS, and Linux, making our output more engaging.
+# We use it to add colors to the output for hardware specs and game compatibility checks.
+colorama==0.4.6
+
+# speedtest-cli is a library for performing internet speed tests using the Speedtest.net servers.
+# It allows us to check the ping, download speed, and upload speed of the internet connection.
+# We use it to gather network speed information for displaying internet specs.
+speedtest-cli==2.1.3
+
+# platform is a standard library module in Python, so no need to install it.
+# It provides functions to access information about the system's underlying hardware, operating system, and interpreter.
+# Used here to gather basic system info such as the operating system and processor.
+# NOTE: Included in the script for completeness, but not needed in requirements.txt.
+
+# subprocess is also part of the Python standard library.
+# It allows us to spawn new processes, connect to their input/output/error pipes, and obtain their return codes.
+# We use subprocess to gather motherboard information from system-specific commands.
+# NOTE: This is part of the standard library and does not need to be listed in requirements.txt.
+
+# re is a standard Python library for regular expression operations.
+# It is not listed here since it's built into Python and doesn't require installation.
+
+# platform and subprocess are built-in Python modules and do not need to be listed in requirements.txt.
+
+# To install the above dependencies, use the command:
+# pip install -r requirements.txt
